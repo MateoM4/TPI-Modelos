@@ -50,12 +50,6 @@ source venv/bin/activate
 pip install simpy pandas matplotlib
 ```
 
-También podés instalar todas las dependencias desde un archivo `requirements.txt` (si está disponible):
-
-```bash
-pip install -r requirements.txt
-```
-
 ---
 
 # ▶️ Ejecución de la simulación
