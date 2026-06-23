@@ -1,4 +1,4 @@
-# 🦷 Análisis de Cuellos de Botella en un Flujo CAD/CAM Dental
+# Análisis de Cuellos de Botella en un Flujo CAD/CAM Dental
 
 Este repositorio contiene el código fuente y la documentación del **Trabajo Práctico Integrador** de la materia **Modelos y Simulaciones (2026)**.
 
@@ -6,7 +6,7 @@ El proyecto implementa un modelo de **Simulación de Eventos Discretos (Discrete
 
 ---
 
-# 📋 Requisitos
+# Requisitos
 
 Antes de ejecutar la simulación, asegurate de tener instalado:
 
@@ -19,7 +19,7 @@ Antes de ejecutar la simulación, asegurate de tener instalado:
 
 ---
 
-# 🚀 Instalación
+# Instalación
 
 ## 1. Clonar el repositorio
 
@@ -52,36 +52,10 @@ pip install simpy pandas matplotlib
 
 ---
 
-# ▶️ Ejecución de la simulación
+# Ejecución de la simulación
 
 Para ejecutar el modelo base, corré el siguiente comando desde la carpeta del proyecto:
 
 ```bash
 python TPI-modelos.py
 ```
-
-Al finalizar la ejecución, el programa generará las métricas y gráficos correspondientes para analizar:
-
-* Tiempos de espera.
-* Utilización de recursos.
-* Evolución de las colas.
-* Tiempos de entrega de las órdenes.
-* Identificación de cuellos de botella.
-
----
-
-# 📁 Estructura del proyecto
-
-```text
-├── TPI-modelos.py        # Script principal de la simulación
-├── README.md             # Documentación del proyecto
-```
-
----
-
-# 🛠 Tecnologías utilizadas
-
-* Python 3
-* SimPy
-* Pandas
-* Matplotlib
