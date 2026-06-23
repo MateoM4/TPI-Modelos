@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 # =====================================================================
 
 # --- Semilla para reproducibilidad ---
-SEMILLA_GLOBAL = 42               # Garantiza que los resultados sean los mismos en cada ejecución
+#SEMILLA_GLOBAL = 4               # Garantiza que los resultados sean los mismos en cada ejecución
 
 # --- Parámetros de Tiempo y Llegadas ---
 TIEMPO_SIMULACION = 480           # Jornada laboral en minutos (8 horas)
@@ -31,7 +31,7 @@ TIEMPO_PENALIZACION = 5           # Minutos perdidos durante el cambio de disco
 # =====================================================================
 # 2. PROCESO DE LA CORONA (3 Etapas Separadas)
 # =====================================================================
-def proceso_corona(env, id_corona, escaneres, disenadores, fresadoras, registros):
+def proceso_corona(env, id_corona, escaneadores, disenadores, fresadoras, registros):
     tiempo_llegada = env.now
     
     ficha_trabajo = {
@@ -48,7 +48,7 @@ def proceso_corona(env, id_corona, escaneres, disenadores, fresadoras, registros
     registros.append(ficha_trabajo)
     
     # --- ETAPA 1: ESCANEO ---
-    with escaneres.request() as peticion_escaneo:
+    with escaneadores.request() as peticion_escaneo:
         yield peticion_escaneo 
         inicio_escaneo = env.now
         
@@ -92,108 +92,156 @@ def proceso_corona(env, id_corona, escaneres, disenadores, fresadoras, registros
 # =====================================================================
 # 3. GENERADOR DE LLEGADAS
 # =====================================================================
-def generador_llegadas(env, escaneres, disenadores, fresadoras, registros):
+def generador_llegadas(env, escaneadores, disenadores, fresadoras, registros):
     contador = 1
     while True:
-        env.process(proceso_corona(env, f'C-{contador:02d}', escaneres, disenadores, fresadoras, registros))
+        env.process(proceso_corona(env, f'C-{contador:02d}', escaneadores, disenadores, fresadoras, registros))
         contador += 1
         yield env.timeout(random.expovariate(1.0 / LLEGADA_PROMEDIO))
 
 # =====================================================================
 # 4. MONITOR DEL SISTEMA
 # =====================================================================
-def monitor_sistema(env, escaneres, disenadores, fresadoras, historial_estado):
+def monitor_sistema(env, escaneadores, disenadores, fresadoras, historial_estado):
     while True:
         historial_estado.append({
             'Minuto': env.now,
-            'Cola_Escaneo': len(escaneres.queue),
+            'Cola_Escaneo': len(escaneadores.queue),
             'Cola_CAD': len(disenadores.queue),
             'Cola_CAM': len(fresadoras.queue),
-            'Escaneres_Ocupados': escaneres.count,
+            'escaneadores_Ocupados': escaneadores.count,
             'Disenadores_Ocupados': disenadores.count,
             'Fresadoras_Ocupadas': fresadoras.count
         })
         yield env.timeout(1)
 
 # =====================================================================
-# 5. MOTOR DE SIMULACIÓN Y VISUALIZACIÓN
+# 5. MOTOR DE SIMULACIÓN Y VISUALIZACIÓN (MODIFICADO)
 # =====================================================================
-def ejecutar_simulacion(cant_escaneres, cant_disenadores, cant_fresadoras, nombre_escenario):
-    # Fijamos la semilla al inicio de la ejecución para repetibilidad
-    random.seed(SEMILLA_GLOBAL)
+def ejecutar_simulacion(cant_escaneadores, cant_disenadores, cant_fresadoras, nombre_escenario, semilla_dia, verbose=True):
+    # Usamos la semilla específica del día para que cada corrida sea única pero reproducible
+    random.seed(semilla_dia)
     
     env = simpy.Environment()
     
-    escaneres = simpy.Resource(env, capacity=cant_escaneres)
+    escaneadores = simpy.Resource(env, capacity=cant_escaneadores)
     disenadores = simpy.Resource(env, capacity=cant_disenadores)
     fresadoras = simpy.Resource(env, capacity=cant_fresadoras)
     
     registros = []
     historial_estado = []
 
-    env.process(generador_llegadas(env, escaneres, disenadores, fresadoras, registros))
-    env.process(monitor_sistema(env, escaneres, disenadores, fresadoras, historial_estado))
+    env.process(generador_llegadas(env, escaneadores, disenadores, fresadoras, registros))
+    env.process(monitor_sistema(env, escaneadores, disenadores, fresadoras, historial_estado))
     
     env.run(until=TIEMPO_SIMULACION)
 
     df_trabajos = pd.DataFrame(registros)
     df_estado = pd.DataFrame(historial_estado)
-
-    # --- ANÁLISIS DE DATOS ---
-    print(f"\n{'='*40}")
-    print(f" RESULTADOS: {nombre_escenario.upper()}")
-    print(f"{'='*40}")
-    
-    trabajos_ingresados = len(df_trabajos)
     df_terminados = df_trabajos.dropna(subset=['Tiempo_Total'])
+
+    # Extraemos las métricas clave del día
+    trabajos_ingresados = len(df_trabajos)
     trabajos_terminados = len(df_terminados)
-    
-    print(f"📦 Flujo de Trabajos:")
-    print(f"  - Trabajos que ingresaron: {trabajos_ingresados}")
-    print(f"  - Coronas terminadas: {trabajos_terminados}")
-    print(f"  - Trabajos atascados al cierre: {trabajos_ingresados - trabajos_terminados}")
-    
-    print(f"\n⏱️  Tiempos de Espera (Cuellos de Botella):")
-    print(f"  - Espera PROMEDIO para Escaneo: {df_trabajos['Espera_Escaneo'].mean(skipna=True):.2f} min")
-    print(f"  - Espera PROMEDIO para Diseño:  {df_trabajos['Espera_CAD'].mean(skipna=True):.2f} min")
-    print(f"  - Espera PROMEDIO para Máquina: {df_trabajos['Espera_CAM'].mean(skipna=True):.2f} min")
-    
-    print(f"\n⚙️  Métricas del Sistema:")
-    print(f"  - Tiempo Total Promedio por Corona: {df_terminados['Tiempo_Total'].mean():.2f} min")
-    
-    uso_escaneres = (df_estado['Escaneres_Ocupados'].sum() / (TIEMPO_SIMULACION * cant_escaneres)) * 100
-    uso_disenadores = (df_estado['Disenadores_Ocupados'].sum() / (TIEMPO_SIMULACION * cant_disenadores)) * 100
-    uso_fresadoras = (df_estado['Fresadoras_Ocupadas'].sum() / (TIEMPO_SIMULACION * cant_fresadoras)) * 100
-    
-    print(f"  - Ocupación del área de Escaneo: {uso_escaneres:.1f}%")
-    print(f"  - Ocupación del área CAD: {uso_disenadores:.1f}%")
-    print(f"  - Ocupación del área CAM: {uso_fresadoras:.1f}%")
+    espera_escaneo = df_trabajos['Espera_Escaneo'].mean(skipna=True)
+    espera_cad = df_trabajos['Espera_CAD'].mean(skipna=True)
+    espera_cam = df_trabajos['Espera_CAM'].mean(skipna=True)
+    tiempo_total_promedio = df_terminados['Tiempo_Total'].mean() if trabajos_terminados > 0 else 0
 
-    # --- GENERACIÓN DE GRÁFICOS ---
-    plt.style.use('ggplot')
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
-    fig.canvas.manager.set_window_title(f'Simulación: {nombre_escenario}')
+    # Si verbose es True, imprimimos el detalle (útil para probar 1 solo día)
+    if verbose:
+        print(f"\n{'='*40}")
+        print(f" RESULTADOS: {nombre_escenario.upper()}")
+        print(f"{'='*40}")
+        print(f"📦 Flujo de Trabajos:")
+        print(f"  - Trabajos que ingresaron: {trabajos_ingresados}")
+        print(f"  - Coronas terminadas: {trabajos_terminados}")
+        print(f"  - Trabajos atascados al cierre: {trabajos_ingresados - trabajos_terminados}")
+        print(f"\n⏱️  Tiempos de Espera (Cuellos de Botella):")
+        print(f"  - Espera PROMEDIO para Escaneo: {espera_escaneo:.2f} min")
+        print(f"  - Espera PROMEDIO para Diseño:  {espera_cad:.2f} min")
+        print(f"  - Espera PROMEDIO para Máquina: {espera_cam:.2f} min")
+        print(f"\n⚙️  Métricas del Sistema:")
+        print(f"  - Tiempo Total Promedio por Corona: {tiempo_total_promedio:.2f} min")
 
-    ax1.plot(df_estado['Minuto'], df_estado['Cola_Escaneo'], label='Cola Escaneo (Físico)', color='purple', linewidth=2)
-    ax1.plot(df_estado['Minuto'], df_estado['Cola_CAD'], label='Cola Diseño (Digital)', color='blue', linewidth=2)
-    ax1.plot(df_estado['Minuto'], df_estado['Cola_CAM'], label='Cola Fresado (Máquina)', color='orange', linewidth=2)
-    ax1.set_title('Dinámica de las Colas de Espera a lo largo del día', fontweight='bold')
-    ax1.set_xlabel('Minutos de la jornada laboral')
-    ax1.set_ylabel('Cantidad de trabajos esperando')
-    ax1.legend()
-    ax1.grid(True)
+    # Devolvemos un diccionario con el resumen transaccional del día
+    return {
+        'Dia': nombre_escenario,
+        'Ingresados': trabajos_ingresados,
+        'Terminados': trabajos_terminados,
+        'Atascados': trabajos_ingresados - trabajos_terminados,
+        'Espera_Escaneo': espera_escaneo,
+        'Espera_CAD': espera_cad,
+        'Espera_CAM': espera_cam,
+        'Tiempo_Total_Promedio': tiempo_total_promedio
+    }
 
-    ax2.bar(df_terminados['Trabajo'], df_terminados['Tiempo_Total'], color='seagreen')
-    ax2.set_title('Lead Time: Tiempo total de permanencia por trabajo (Solo completados)', fontweight='bold')
-    ax2.set_xlabel('Identificador del Trabajo')
-    ax2.set_ylabel('Minutos')
-    ax2.tick_params(axis='x', rotation=45)
+# =====================================================================
+# 6. SIMULACIÓN MENSUAL (30 CORRIDAS)
+# =====================================================================
+def simular_mes(cant_escaneadores, cant_disenadores, cant_fresadoras, nombre_escenario, semilla_base):
+    print(f"\n🚀 EJECUTANDO SIMULACIÓN MENSUAL (30 DÍAS) - {nombre_escenario.upper()}...")
+    
+    resultados_mes = []
 
-    plt.tight_layout()
-    plt.show()
+    # Bucle para simular 30 días independientes
+    for dia in range(1, 31):
+        # Generamos una semilla única para cada día basada en la semilla global
+        semilla_dia = semilla_base + dia 
+        
+        # Ejecutamos la simulación del día en modo silencioso (verbose=False)
+        metricas_dia = ejecutar_simulacion(
+            cant_escaneadores, cant_disenadores, cant_fresadoras,
+            nombre_escenario=f"Día {dia}",
+            semilla_dia=semilla_dia,
+            verbose=False
+        )
+        resultados_mes.append(metricas_dia)
 
-    return df_trabajos, df_estado
+    # Consolidamos los 30 días en un DataFrame para el análisis estadístico
+    df_mes = pd.DataFrame(resultados_mes)
+
+    # --- IMPRESIÓN DEL REPORTE MENSUAL ---
+    print(f"\n{'='*50}")
+    print(f" 📊 REPORTE MENSUAL CONSOLIDADO")
+    print(f"{'='*50}")
+    
+    print(f"📦 Producción Mensual:")
+    print(f"  - Total ingresados en el mes: {df_mes['Ingresados'].sum()} coronas")
+    print(f"  - Total terminadas en el mes: {df_mes['Terminados'].sum()} coronas")
+    print(f"  - Promedio de terminadas por día: {df_mes['Terminados'].mean():.1f} coronas/día")
+    
+    print(f"\n⏱️ Tiempos de Espera Promedio (Los 30 días):")
+    print(f"  - Área de Escaneo: {df_mes['Espera_Escaneo'].mean():.2f} minutos")
+    print(f"  - Área de Diseño:  {df_mes['Espera_CAD'].mean():.2f} minutos")
+    print(f"  - Área de Fresado: {df_mes['Espera_CAM'].mean():.2f} minutos")
+    
+    print(f"\n⚙️ Eficiencia Global:")
+    print(f"  - Tiempo de entrega promedio general: {df_mes['Tiempo_Total_Promedio'].mean():.2f} minutos")
+    print(f"{'='*50}\n")
+
+    return df_mes
 
 # --- EJECUTAR ---
 if __name__ == '__main__':
-    df_base, df_estado_base = ejecutar_simulacion(cant_escaneres=1, cant_disenadores=1, cant_fresadoras=2, nombre_escenario="Escenario Base")
+    # Definimos una lista con las semillas base que queremos probar en esta corrida
+    semillas_de_prueba = [1, 50, 100, 150, 200, 250, 300, 350, 400, 450]
+    
+    # Guardamos los resultados de cada mes en una lista por si queremos compararlos después
+    resultados_historicos = []
+
+    for semilla in semillas_de_prueba:
+        print(f"\n{'*'*60}")
+        print(f" INICIANDO SIMULACIÓN CON SEMILLA BASE: {semilla}")
+        print(f"{'*'*60}")
+        
+        # Ejecutamos el mes completo inyectando la semilla por argumento
+        df_mes_actual = simular_mes(
+            cant_escaneadores=2, 
+            cant_disenadores=2, 
+            cant_fresadoras=2, 
+            nombre_escenario=f"Escenario Base (Seed {semilla})", 
+            semilla_base=semilla
+        )
+        
+        resultados_historicos.append(df_mes_actual)
